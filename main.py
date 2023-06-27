@@ -8,13 +8,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon, QIntValidator, QPixmap, QColor
-from supabase import create_client
+import json
+import os
 
-url = "http://localhost:8000"
-key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJzZXJ2aWNlX3JvbGUiLAogICAgImlzcyI6ICJzdXBhYmFzZS1kZW1vIiwKICAgICJpYXQiOiAxNjQxNzY5MjAwLAogICAgImV4cCI6IDE3OTk1MzU2MDAKfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q"
-
-supabase = create_client(url, key)
-
+filename = 'file.txt'
 
 class MainWindow(QMainWindow):
     def __init__(self): # Запуск приложения
@@ -22,6 +19,16 @@ class MainWindow(QMainWindow):
         self.resize(1500, 750)
         self.username = 'anon'
         self.make_start_params()
+        if not os.path.exists(filename):
+            # Создаем новый файл, если он не существует
+            with open(filename, 'w') as file:
+                json.dump({}, file)
+        with open(filename, 'r') as file:
+            data = json.load(file)
+            try:
+                self.now_id = max(list(map(int, data.keys())))
+            except ValueError:
+                self.now_id = 0
         self.mainscreen()
 
     def create_elem_for_mainscreen(self): # Элементы и логика для основного экрана
@@ -121,13 +128,18 @@ class MainWindow(QMainWindow):
             pixmap = QPixmap(picture_path)
             self.active_elements['result_lbl'] = QLabel('Вы ответили верно')
             data['is_correct'] = True
-            _, _ = supabase.table('entry').insert(data).execute()
         else:
             picture_path = random.choice([f'bad{i}.jpg' for i in range(1, 5)])
             pixmap = QPixmap(picture_path)
             self.active_elements['result_lbl'] = QLabel(f'Вы ответили неверно, правильный ответ был {self.now_res}')
             data['is_correct'] = False
-            _, _ = supabase.table('entry').insert(data).execute()
+        with open(filename, 'r+') as file:
+            now_data = json.load(file)
+            now_data[self.now_id] = data
+            self.now_id += 1
+            file.seek(0)
+            json.dump(now_data, file, indent=4)
+            file.truncate()
         pixmap = pixmap.scaled(1280, 720, Qt.AspectRatioMode.KeepAspectRatio)
         self.active_elements['im_lbl'].setPixmap(pixmap)
         self.active_elements.get('go_to_main').clicked.connect(self.go_to_mainscreen)
@@ -144,16 +156,18 @@ class MainWindow(QMainWindow):
         self.active_elements['search'].setPlaceholderText("Search...")
         self.active_elements['search'].textChanged.connect(self.search)
 
-        response = supabase.table('entry').select('username', 'time', 'start', 'stop', 'game_type', 'eq',
-                                                  'correct_answer', 'user_answer', 'is_correct').order('id',
-                                                                                                       desc=True).execute()
-        data = response.data
-        rows = len(data) + 1
+        with open(filename, 'r') as file:
+            data = json.load(file)
+
+        for i in list(data.keys()):
+            data[int(i)] = data[str(i)]
+            del data[str(i)]
+        rows = len(data.keys()) + 1
         columns = 8
         self.active_elements['table'].setRowCount(rows)
         self.active_elements['table'].setColumnCount(columns)
 
-        column_names = ['username', 'duration', 'start', 'stop', 'game_type', 'eq', 'correct_answer', 'user_answer']
+        column_names = ['username', 'time', 'start', 'stop', 'game_type', 'eq', 'correct_answer', 'user_answer']
 
         for i in range(rows):
             for j in range(columns):
